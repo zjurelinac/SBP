@@ -1,12 +1,12 @@
-CXX = g++#clang++-4.0 # g++
+CXX = g++
 
-PROFILE = true
+PROFILE = false
 DEBUG = true
 OPT_LVL = 3
 
-DFLAGS =
+DFLAGS = POPULATION=50 ELITENESS=2 TERMINATE_TIME=60 #DYNAMIC_FITNESS # TERMINATE_ITERS=10000
 DFLAGS_ = $(foreach flag,$(DFLAGS),-D$(flag))
-CFLAGS = -std=c++14 -O$(OPT_LVL) -msse4.2 -Wall -Wextra -Wno-char-subscripts -I./src/include $(DFLAGS_)
+CFLAGS = -std=c++1z -O$(OPT_LVL) -Wall -Wextra -Wno-char-subscripts -Wno-unused-result -I./src/include $(DFLAGS_) -march=native -mfpmath=sse
 
 ifeq ($(DEBUG), true)
 	CFLAGS += -g -DDEBUG

@@ -5,10 +5,13 @@
 #include <initializer_list>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <random>
 #include <set>
 #include <utility>
 #include <vector>
+
+#include "ctpl.h"
 
 namespace {
     template <typename random_engine = std::default_random_engine>
@@ -34,6 +37,14 @@ namespace ea {
 
     /*** Utility functions ***/
 
+#ifdef MULTITHREADED
+    template <typename solution_container, typename fitness_policy>
+    inline auto evaluate(const solution_container& sc, fitness_policy& evaluator) {
+        static ctpl::thread_pool pool(std::thread::hardware_concurrency());
+
+
+    }
+#else
     template <typename solution_container, typename fitness_policy>
     inline auto evaluate(const solution_container& sc, fitness_policy& evaluator) {
         using solution_entity = entity<typename fitness_policy::fitness_type, typename solution_container::value_type>;
@@ -45,6 +56,7 @@ namespace ea {
 
         return solutions;
     }
+#endif
 
     template <typename T>
     std::ostream& operator<<(std::ostream& os, std::vector<T> v) {
@@ -194,11 +206,6 @@ namespace ea {
     struct best_n_selector {
         best_n_selector(unsigned num)
             : n(num) {}
-        best_n_selector(const best_n_selector& bns)
-            : n(bns.n) {}
-        best_n_selector(best_n_selector&& bns)
-            : n(std::move(bns.n)) {}
-
         template <typename solution_container>
         solution_container operator()(solution_container sc) {
             if (n < sc.size()) {
@@ -217,16 +224,43 @@ namespace ea {
     struct const_num_iter_terminator {
         const_num_iter_terminator(unsigned num)
             : num_iters(num), curr_iter(0) {}
-        const_num_iter_terminator(const const_num_iter_terminator& cnit)
-            : num_iters(cnit.num_iters), curr_iter(cnit.curr_iter) {}
-        const_num_iter_terminator(const_num_iter_terminator&& cnit)
-            : num_iters(std::move(cnit.num_iters)), curr_iter(std::move(cnit.curr_iter)) {}
-
         template <typename solution_container>
         bool operator()(const solution_container&)
             { return ++curr_iter >= num_iters; }
     private:
         unsigned num_iters, curr_iter;
+    };
+
+    struct finite_time_terminator {
+        finite_time_terminator(unsigned dur)
+            : duration(dur) { start_time = std::time(nullptr); }
+        template <typename solution_container>
+        bool operator()(const solution_container&)
+            { return std::time(nullptr) - start_time >= duration; }
+    private:
+        unsigned duration;
+        std::time_t start_time;
+    };
+
+    template <typename fitness_t>
+    struct const_max_fitness_terminator {
+        const_max_fitness_terminator(unsigned mui)
+            : max_unchanged_iters(mui), curr_unchanged_iters(0), max_fitness(std::numeric_limits<fitness_t>::min()) {}
+        template <typename solution_container>
+        bool operator()(const solution_container& sc) {
+            fitness_t new_max = std::max_element(sc.begin(), sc.end())->first;
+            if (new_max > max_fitness) {
+                max_fitness = new_max;
+                curr_unchanged_iters = 0;
+            } else {
+                ++curr_unchanged_iters;
+            }
+
+            return curr_unchanged_iters >= max_unchanged_iters;
+        }
+    private:
+        unsigned max_unchanged_iters, curr_unchanged_iters;
+        fitness_t max_fitness;
     };
 
     /*** Common initial solution generator functors ***/
