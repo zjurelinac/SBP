@@ -1,12 +1,13 @@
-CXX = g++
+CXX = clang++-4.0
 
 PROFILE = false
 DEBUG = true
 OPT_LVL = 3
 
-DFLAGS = POPULATION=50 ELITENESS=2 TERMINATE_TIME=60 #DYNAMIC_FITNESS # TERMINATE_ITERS=10000
+DFLAGS = POPULATION=50 ELITENESS=2 TERMINATE_TIME=60 # DYNAMIC_FITNESS
 DFLAGS_ = $(foreach flag,$(DFLAGS),-D$(flag))
 CFLAGS = -std=c++1z -O$(OPT_LVL) -Wall -Wextra -Wno-char-subscripts -Wno-unused-result -I./src/include $(DFLAGS_) -march=native -mfpmath=sse
+LDFLAGS = -pthread
 
 ifeq ($(DEBUG), true)
 	CFLAGS += -g -DDEBUG

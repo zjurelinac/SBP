@@ -7,7 +7,8 @@
 #include <stack>
 #include <vector>
 
-#define MAX_FIT_CHANGE_ITERS 50000
+#define MAX_FIT_CHANGE_ITERS 10000
+#define MANUAL_PERMUTATION_CUTOFF 10
 
 using dist_t = float;
 using dist_matrix = std::vector<std::vector<dist_t>>;
@@ -78,6 +79,7 @@ struct distance_fitness {
             }
         }
         puts("\n");
+        fprintf(stderr, "\nBest: %.2lf\n", -(*this)(route));
     }
 
     private:
@@ -114,10 +116,10 @@ struct dynamic_distance_fitness {
     }
 
     void reconstruct(std::vector<int> route) {
-        (*this)(route);
+        auto sol = -(*this)(route);
 
         int l = 0, L = 0;
-        for (int i = 0; i < N; ++i) {
+        for (int i = 0; i < N-1; ++i) {
             L += stop_students_count[route[i]];
             printf("%d ", route[i]);
             dist_t sol_direct = (L + stop_students_count[route[i+1]] <= C)
@@ -132,7 +134,8 @@ struct dynamic_distance_fitness {
             }
         }
 
-        putchar('\n');
+        printf("%d\n\n", route[N-1]);
+        fprintf(stderr, "\nBest: %.2lf\n", sol);
     }
 
     private:
@@ -141,46 +144,99 @@ struct dynamic_distance_fitness {
         dist_matrix& stop_stop_dist;
 
         int N;
-        bool *R;
         std::vector<dist_t> DP;
         std::vector<int> route;
 };
 
+template <typename fitness_policy>
+struct local_searcher {
+    using solution_type = std::vector<int>;
+    using solution_container = std::vector<solution_type>;
+
+    local_searcher(fitness_policy evaluator)
+        : evaluator(evaluator) {}
+
+    solution_container operator()(solution_container sc) {
+        return sc;
+    }
+
+    private:
+        fitness_policy evaluator;
+};
+
+template <typename fitness_policy>
+auto best_route_permutation(std::vector<int> route, fitness_policy evaluator) {
+    std::sort(route.begin(), route.end());
+
+    std::vector<int> best = route;
+    auto best_fitness = evaluator(route);
+
+    while (std::next_permutation(route.begin(), route.end())) {
+        auto curr_fitness = evaluator(route);
+        if (curr_fitness > best_fitness) {
+            best_fitness = curr_fitness;
+            best = route;
+        }
+    }
+
+    return best;
+};
+
 auto best_city_route(int C, std::vector<int>& stop_students_count, dist_matrix& stop_stop_dist) {
-    std::vector<int> base;
+    #ifdef DYNAMIC_FITNESS
+        auto fitness = dynamic_distance_fitness(C, stop_students_count, stop_stop_dist);
+        auto searcher = local_searcher<dynamic_distance_fitness>(fitness);
+    #else
+        auto fitness = distance_fitness(C, stop_students_count, stop_stop_dist);
+        auto searcher = local_searcher<distance_fitness>(fitness);
+    #endif
+
+    std::vector<int> base, full, sol;
+
     for (auto i = 0u; i < stop_students_count.size(); ++i)
-        if (stop_students_count[i] > 0)
+        if (stop_students_count[i] == C)
+            full.push_back(i);
+        else if (stop_students_count[i] > 0)
             base.push_back(i);
 
-    return ea::genetic_algorithm(ea::generator_initializer<ea::permutation_shuffle_generator<std::vector<int>>>(ea::permutation_shuffle_generator<std::vector<int>>(base), POPULATION),
-                                 ea::cross_mutation_reproducer<ea::rank_parent_selector, ea::ordered_crossover, ea::swap_mutator>(ea::rank_parent_selector(POPULATION), ea::ordered_crossover(), ea::swap_mutator(), ELITENESS),
-                                 ea::best_n_selector(POPULATION),
+    auto chromo_size = base.size();
 
-#if defined(TERMINATE_ITERS)
-                                 ea::const_num_iter_terminator(TERMINATE_ITERS),
-#elif defined(TERMINATE_TIME)
-                                 ea::finite_time_terminator(TERMINATE_TIME),
-#else /* Terminate on max fitness reached */
-                                 ea::const_max_fitness_terminator<dist_t>(MAX_FIT_CHANGE_ITERS),
-#endif
+    std::cerr << "Chromosome size = " << chromo_size << "\n";
 
-#ifdef DYNAMIC_FITNESS
-                                 dynamic_distance_fitness(C, stop_students_count, stop_stop_dist)
-#else
-                                 distance_fitness(C, stop_students_count, stop_stop_dist)
-#endif
-                                );
+    if (chromo_size < MANUAL_PERMUTATION_CUTOFF) {
+        sol = best_route_permutation(base, fitness);
+    } else {
+        sol = ea::genetic_algorithm_with_local_search(
+            ea::generator_initializer<ea::permutation_shuffle_generator<std::vector<int>>>(ea::permutation_shuffle_generator<std::vector<int>>(base), POPULATION),
+            ea::cross_mutation_reproducer<ea::rank_parent_selector, ea::ordered_crossover, ea::swap_mutator>(ea::rank_parent_selector(POPULATION), ea::ordered_crossover(), ea::swap_mutator(), ELITENESS),
+            searcher,
+            ea::best_n_selector(POPULATION),
+    #if defined(TERMINATE_ITERS)
+            ea::const_num_iter_terminator(TERMINATE_ITERS),
+    #elif defined(TERMINATE_TIME)
+            ea::finite_time_terminator(TERMINATE_TIME),
+    #else /* Terminate on max fitness reached */
+            ea::const_max_fitness_terminator<dist_t>(MAX_FIT_CHANGE_ITERS),
+    #endif
+            fitness
+        ).second;
+    }
+
+    for (const auto& s : full)
+        sol.push_back(s);
+
+    return sol;
 }
 
 template <typename solution_type>
 void reconstruct(solution_type best, int N, int C, std::vector<int>& stop_students_count, std::vector<int>& student_chosen_stop, dist_matrix& stop_stop_dist) {
-#ifdef DYNAMIC_FITNESS
-    dynamic_distance_fitness ddf(C, stop_students_count, stop_stop_dist);
-    ddf.reconstruct(best.second);
-#else
-    distance_fitness df(C, stop_students_count, stop_stop_dist);
-    df.reconstruct(best.second);
-#endif
+    #ifdef DYNAMIC_FITNESS
+        dynamic_distance_fitness ddf(C, stop_students_count, stop_stop_dist);
+        ddf.reconstruct(best);
+    #else
+        distance_fitness df(C, stop_students_count, stop_stop_dist);
+        df.reconstruct(best);
+    #endif
     for (int i = 0; i < N; ++i) printf("%d %d\n", i + 1, student_chosen_stop[i]); puts("");
 }
 
@@ -188,7 +244,7 @@ struct nearest_students_greedy {
     nearest_students_greedy(int M, int N, int C, std::vector<int>& sorted_stops, std::vector<std::vector<int>>& stop_nearby_students, dist_matrix& stop_stop_dist)
         : M(M), N(N), C(C), sorted_stops(sorted_stops), stop_nearby_students(stop_nearby_students), stop_stop_dist(stop_stop_dist), stop_students_count(M, 0), student_chosen_stop(N, -1) {}
 
-    void assign() {
+    bool assign() {
         for (auto s : sorted_stops) {
             int observed = 0, occupied = 0;
             for (auto t : stop_nearby_students[s]) {
@@ -202,6 +258,8 @@ struct nearest_students_greedy {
                 }
             }
         }
+
+        return true;    // For now, it should check!
     }
 
     auto calculate_route()
@@ -220,7 +278,7 @@ struct least_stops_greedy {
     least_stops_greedy(int M, int N, int C, std::vector<int>& sorted_stops, std::vector<std::vector<int>>& stop_nearby_students, dist_matrix& stop_stop_dist)
         : M(M), N(N), C(C), sorted_stops(sorted_stops), stop_nearby_students(stop_nearby_students), stop_stop_dist(stop_stop_dist), stop_students_count(M, 0), student_chosen_stop(N, -1) {}
 
-    void assign() {
+    bool assign() {
         int unassigned = N;
         while (unassigned > 0) {
             int best_stop = -1, best_potential = 0;
@@ -230,7 +288,7 @@ struct least_stops_greedy {
                 int potential = 0;
                 bool filled = false;
                 for (auto t : stop_nearby_students[s]) {
-                    if (student_chosen_stop[t] != -1) continue; // If student already assigned somewhere, skip him
+                    if (student_chosen_stop[t] != -1) continue;  // If student already assigned somewhere, skip him
                     if (++potential >= C) {                       // If stop filled to its capacity, break
                         filled = true;
                         break;
@@ -247,6 +305,9 @@ struct least_stops_greedy {
                 }
             }
 
+            if (best_stop == -1)
+                return false;
+
             int assigned = 0;
             for (auto t : stop_nearby_students[best_stop]) {    // Record the assignments
                 if (student_chosen_stop[t] != -1) continue;
@@ -257,6 +318,8 @@ struct least_stops_greedy {
 
             unassigned -= assigned;
         }
+
+        return true;
     }
 
     auto calculate_route() { return best_city_route(C, stop_students_count, stop_stop_dist); }
@@ -315,9 +378,9 @@ int main(int argc, char* argv[]) {
             stop_stop_dist[s1][s2] = stop_stop_dist[s2][s1] = pt_dist(stops[s1], stops[s2]);
 
     // Stop-student distance calculation
-    for (int i = 0; i < M; ++i)
-        for (int j = 0; j < N; ++j)
-            stop_student_dist[i][j] = pt_dist(stops[i], students[j]);
+    for (int s = 0; s < M; ++s)
+        for (int t = 0; t < N; ++t)
+            stop_student_dist[s][t] = pt_dist(stops[s], students[t]);
 
 
     /*** Stops sorting to determine their priority (closest to the school comes first) ***/
@@ -349,25 +412,30 @@ int main(int argc, char* argv[]) {
 
     std::cerr << "Done preprocessing\n";
 
-    auto nearest = nearest_students_greedy(M, N, C, sorted_stops, stop_nearby_students, stop_stop_dist);
-    nearest.assign();
-    auto best_nearest = nearest.calculate_route();
-    std::cerr << "Done greedy nearest :: " << best_nearest.first << "\n";
+    std::vector<int>* stop_students_count;
+    std::vector<int>* student_chosen_stop;
 
     auto least = least_stops_greedy(M, N, C, sorted_stops, stop_nearby_students, stop_stop_dist);
-    least.assign();
-    auto best_least = least.calculate_route();
-    std::cerr << "Done greedy least :: " << best_least.first << "\n";
+    auto nearest = nearest_students_greedy(M, N, C, sorted_stops, stop_nearby_students, stop_stop_dist);
+
+    std::vector<int> best;
+
+    if (least.assign()) {  // Greedy successful
+        best = least.calculate_route();
+        stop_students_count = &least.stop_students_count;
+        student_chosen_stop = &least.student_chosen_stop;
+    } else if (nearest.assign()) {
+        best = nearest.calculate_route();
+        stop_students_count = &nearest.stop_students_count;
+        student_chosen_stop = &nearest.student_chosen_stop;
+    } else {
+        std::cerr << "Cannot assign students to stops!\n";
+        exit(1);
+    }
 
     /*** Reconstruct the best route and output it ***/
+    reconstruct(best, N, C, *stop_students_count, *student_chosen_stop, stop_stop_dist);
 
-    if (best_nearest.first > best_least.first) {
-        reconstruct(best_nearest, N, C, nearest.stop_students_count, nearest.student_chosen_stop, stop_stop_dist);
-        std::cerr << -best_nearest.first << "\n";
-    } else {
-        reconstruct(best_least, N, C, least.stop_students_count, least.student_chosen_stop, stop_stop_dist);
-        std::cerr << -best_least.first << "\n";
-    }
     std::cerr << "Fitness evals = " << FITNESS_EVALS << "\n";
 
     return 0;

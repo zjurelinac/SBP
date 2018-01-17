@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "ctpl.h"
+// #include "ctpl.h"
 
 namespace {
     template <typename random_engine = std::default_random_engine>
@@ -37,14 +37,25 @@ namespace ea {
 
     /*** Utility functions ***/
 
-#ifdef MULTITHREADED
+/*#ifdef MULTITHREADED
     template <typename solution_container, typename fitness_policy>
     inline auto evaluate(const solution_container& sc, fitness_policy& evaluator) {
+        using solution_entity = entity<typename fitness_policy::fitness_type, typename solution_container::value_type>;
+        using future_type = std::future<typename fitness_policy::fitness_type>;
+
         static ctpl::thread_pool pool(std::thread::hardware_concurrency());
 
+        std::vector<future_type> temp_results;
+        for (const auto& sol : sc)
+            temp_results.push_back(pool.push([&evaluator, sol](int){ return evaluator(sol); }));
 
+        container<solution_entity> solutions;
+        for (auto i = 0u; i < sc.size(); ++i)
+            solutions.emplace_back(temp_results[i].get(), sc[i]);
+
+        return solutions;
     }
-#else
+#else*/
     template <typename solution_container, typename fitness_policy>
     inline auto evaluate(const solution_container& sc, fitness_policy& evaluator) {
         using solution_entity = entity<typename fitness_policy::fitness_type, typename solution_container::value_type>;
@@ -56,7 +67,7 @@ namespace ea {
 
         return solutions;
     }
-#endif
+// #endif
 
     template <typename T>
     std::ostream& operator<<(std::ostream& os, std::vector<T> v) {
@@ -82,10 +93,22 @@ namespace ea {
 
         container<solution_entity> solutions = evaluate(initializer(), evaluator);
 
-        while (!terminator(solutions)) {
+        while (!terminator(solutions))
             solutions = selector(evaluate(reproducer(solutions), evaluator));
-            //show(solutions);
-        }
+
+        return *(std::max_element(solutions.begin(), solutions.end()));
+    }
+
+    template <typename initializer_policy, typename reproduction_policy, typename local_searching_policy,
+              typename selection_policy, typename termination_policy, typename fitness_policy>
+    auto genetic_algorithm_with_local_search(initializer_policy initializer, reproduction_policy reproducer, local_searching_policy searcher,
+                                             selection_policy selector, termination_policy terminator, fitness_policy evaluator) {
+        using solution_entity = entity<typename fitness_policy::fitness_type, typename initializer_policy::solution_type>;
+
+        container<solution_entity> solutions = evaluate(initializer(), evaluator);
+
+        while (!terminator(solutions))
+            solutions = selector(evaluate(searcher(reproducer(solutions)), evaluator));
 
         return *(std::max_element(solutions.begin(), solutions.end()));
     }
@@ -111,10 +134,6 @@ namespace ea {
 
         generator_initializer(generator g, int n)
             { for (int i = 0; i < n; ++i) consts.push_back(g()); }
-        generator_initializer(const generator_initializer& ci)
-            : consts(ci.consts) {}
-        generator_initializer(generator_initializer&& ci)
-            : consts(std::move(ci.consts)) {}
         const std::vector<solution_type>& operator()() const { return consts; }
     private:
         std::vector<solution_type> consts;
@@ -233,10 +252,10 @@ namespace ea {
 
     struct finite_time_terminator {
         finite_time_terminator(unsigned dur)
-            : duration(dur) { start_time = std::time(nullptr); }
+            : duration(dur) { start_time = 0; }
         template <typename solution_container>
         bool operator()(const solution_container&)
-            { return std::time(nullptr) - start_time >= duration; }
+            { if (!start_time) start_time = std::time(nullptr); return std::time(nullptr) - start_time >= duration; }
     private:
         unsigned duration;
         std::time_t start_time;
