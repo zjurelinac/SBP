@@ -16,7 +16,8 @@ using dist_matrix = std::vector<std::vector<dist_t>>;
 #define SCHOOL 0
 #define INF 1e18f
 
-static unsigned int FITNESS_EVALS = 0;
+static unsigned FITNESS_EVALS = 0;
+static unsigned LOCAL_IMPROVEMENTS = 0;
 
 template <typename T>
 std::ostream& operator<<(std::ostream& os, std::vector<T> v) {
@@ -151,14 +152,69 @@ struct dynamic_distance_fitness {
 template <typename fitness_policy>
 struct local_searcher {
     using solution_type = std::vector<int>;
-    using solution_container = std::vector<solution_type>;
+    using fitness_type = typename fitness_policy::fitness_type;
+    using solution_entity = std::pair<fitness_type, solution_type>;
+    using solution_container = std::vector<solution_entity>;
 
     local_searcher(fitness_policy evaluator)
         : evaluator(evaluator) {}
 
     solution_container operator()(solution_container sc) {
-        return sc;
+        solution_container nsc;
+
+        for (auto& sol : sc)
+            nsc.push_back(swap_search(sol));
+
+        return nsc;
     }
+
+    solution_entity swap_search(solution_entity base) {
+        auto N = base.second.size();
+
+        auto best_sol = base.second;
+        auto best_fit = base.first;
+        bool improved = true;
+
+        while (improved) {
+            improved = false;
+
+            for (auto i = 0u; i < N - 1; ++i) {
+                std::iter_swap(best_sol.begin() + i, best_sol.begin() + i + 1);
+                auto curr_fit = evaluator(best_sol);
+                if (curr_fit > best_fit) {
+                    best_fit = curr_fit;
+                    improved = true;
+                    ++LOCAL_IMPROVEMENTS;
+                    break;
+                }
+                std::iter_swap(best_sol.begin() + i, best_sol.begin() + i + 1);
+            }
+
+            /*if (best_fit > base.first) {
+                ++LOCAL_IMPROVEMENTS;
+                std::iter_swap(base.second.begin() + best_swap, base.second.begin() + best_swap + 1);
+                base.first = best_fit;
+                improved = true;
+            }*/
+        }
+
+        return {best_fit, best_sol};
+    }
+
+    /*solution_entity rotate_search(solution_entity sol) {
+        solution_type best_sol = sol.second;
+        auto best_fit = sol.first;
+        for (auto i = 1u; i < sol.second.size(); ++i) {
+            solution_type curr_sol = sol.second;
+            std::rotate(curr_sol.begin(), curr_sol.begin()+i, curr_sol.end());
+            auto curr_fit = evaluator(curr_sol);
+            if (curr_fit > best_fit) {
+                best_fit = curr_fit;
+                best_sol = curr_sol;
+            }
+        }
+        return {best_fit, best_sol};
+    }*/
 
     private:
         fitness_policy evaluator;
@@ -333,6 +389,27 @@ struct least_stops_greedy {
     std::vector<int> student_chosen_stop;
 };
 
+struct variational_greedy {
+    variational_greedy(int M, int N, int C, std::vector<int>& sorted_stops, std::vector<std::vector<int>>& stop_nearby_students, dist_matrix& stop_stop_dist)
+        : M(M), N(N), C(C), sorted_stops(sorted_stops), stop_nearby_students(stop_nearby_students), stop_stop_dist(stop_stop_dist), stop_capacity(M, C), stop_students_count(M, 0), student_chosen_stop(N, -1) {}
+
+    bool assign() {
+        //for
+
+        return false;
+    }
+
+    int M, N, C;
+    std::vector<int>& sorted_stops;
+    std::vector<std::vector<int>>& stop_nearby_students;
+    dist_matrix& stop_stop_dist;
+
+    std::vector<int> stop_capacity;
+
+    std::vector<int> stop_students_count;
+    std::vector<int> student_chosen_stop;
+};
+
 int main(int argc, char* argv[]) {
     if (argc != 2) {
         puts("Usage: sbr infile");
@@ -436,7 +513,7 @@ int main(int argc, char* argv[]) {
     /*** Reconstruct the best route and output it ***/
     reconstruct(best, N, C, *stop_students_count, *student_chosen_stop, stop_stop_dist);
 
-    std::cerr << "Fitness evals = " << FITNESS_EVALS << "\n";
+    std::cerr << "FITNESS EVALS = " << FITNESS_EVALS << "\nLOCAL_IMPROVEMENTS = " << LOCAL_IMPROVEMENTS << "\n";
 
     return 0;
 }

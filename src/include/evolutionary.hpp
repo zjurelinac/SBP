@@ -108,7 +108,7 @@ namespace ea {
         container<solution_entity> solutions = evaluate(initializer(), evaluator);
 
         while (!terminator(solutions))
-            solutions = selector(evaluate(searcher(reproducer(solutions)), evaluator));
+            solutions = searcher(selector(evaluate(reproducer(solutions), evaluator)));
 
         return *(std::max_element(solutions.begin(), solutions.end()));
     }
