@@ -189,32 +189,10 @@ struct local_searcher {
                 }
                 std::iter_swap(best_sol.begin() + i, best_sol.begin() + i + 1);
             }
-
-            /*if (best_fit > base.first) {
-                ++LOCAL_IMPROVEMENTS;
-                std::iter_swap(base.second.begin() + best_swap, base.second.begin() + best_swap + 1);
-                base.first = best_fit;
-                improved = true;
-            }*/
         }
 
         return {best_fit, best_sol};
     }
-
-    /*solution_entity rotate_search(solution_entity sol) {
-        solution_type best_sol = sol.second;
-        auto best_fit = sol.first;
-        for (auto i = 1u; i < sol.second.size(); ++i) {
-            solution_type curr_sol = sol.second;
-            std::rotate(curr_sol.begin(), curr_sol.begin()+i, curr_sol.end());
-            auto curr_fit = evaluator(curr_sol);
-            if (curr_fit > best_fit) {
-                best_fit = curr_fit;
-                best_sol = curr_sol;
-            }
-        }
-        return {best_fit, best_sol};
-    }*/
 
     private:
         fitness_policy evaluator;
@@ -394,7 +372,20 @@ struct variational_greedy {
         : M(M), N(N), C(C), sorted_stops(sorted_stops), stop_nearby_students(stop_nearby_students), stop_stop_dist(stop_stop_dist), stop_capacity(M, C), stop_students_count(M, 0), student_chosen_stop(N, -1) {}
 
     bool assign() {
-        //for
+        std::vector<std::vector<int>> student_potential_stops(N);
+
+        for (int s = 0; s < M; ++s)
+            for (auto t : stop_nearby_students[s])
+                student_potential_stops[t].push_back(s);
+
+        for (int t = 0; t < N; ++t)
+            if (student_potential_stops[t].size() == 1) {
+                student_chosen_stop[t] = student_potential_stops[t][0];
+                ++stop_students_count[student_potential_stops[t][0]];
+                --stop_students_count[student_potential_stops[t][0]];
+            }
+
+        /* ... */
 
         return false;
     }
